@@ -1,0 +1,19 @@
+{
+  "name": "Pronósticos de Demanda",
+  "short_name": "Pronósticos",
+  "description": "Pronósticos de demanda con Promedio simple, Promedio ponderado y Suavización exponencial",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0E1116",
+  "theme_color": "#0E1116",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='28' fill='%230E1116'/%3E%3Cpolyline points='28,140 70,90 100,112 164,48' fill='none' stroke='%23E2A33D' stroke-width='10' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='164' cy='48' r='9' fill='%2352B7A6'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

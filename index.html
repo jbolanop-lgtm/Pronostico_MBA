@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Pronósticos de Demanda</title>
+<meta name="theme-color" content="#0E1116">
+<link rel="manifest" href="./manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0E1116;
+    --panel:#161B22;
+    --panel-alt:#1D232C;
+    --border:#272E38;
+    --text:#E7E9EE;
+    --muted:#8B92A1;
+    --accent:#E2A33D;      /* promedio simple */
+    --accent-2:#6E8FD9;    /* promedio ponderado */
+    --accent-3:#52B7A6;    /* suavización exponencial */
+    --danger:#E2574C;
+    --radius:10px;
+    --mono:'IBM Plex Mono', ui-monospace, monospace;
+    --sans:'Space Grotesk', system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); -webkit-font-smoothing:antialiased;
+  }
+  input,select,button,textarea{font-family:inherit;}
+  ::selection{background:var(--accent); color:#0E1116;}
+
+  /* ---------- utility ---------- */
+  .hidden{display:none !important;}
+  .mono{font-family:var(--mono);}
+  .muted{color:var(--muted);}
+  button{cursor:pointer;}
+  a{color:var(--accent-3);}
+
+  /* ---------- auth screen ---------- */
+  #auth-screen{
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:24px; position:relative; overflow:hidden;
+  }
+  #auth-screen::before{
+    content:""; position:absolute; inset:0;
+    background:
+      linear-gradient(180deg, rgba(226,163,61,.06), transparent 40%),
+      repeating-linear-gradient(115deg, rgba(255,255,255,.02) 0 1px, transparent 1px 64px);
+    pointer-events:none;
+  }
+  .auth-card{
+    position:relative; width:100%; max-width:400px;
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    padding:32px 30px 28px;
+  }
+  .auth-mark{display:flex; align-items:center; gap:10px; margin-bottom:22px;}
+  .auth-mark svg{flex:0 0 auto;}
+  .auth-mark .t1{font-weight:700; font-size:1.05rem; letter-spacing:.01em;}
+  .auth-mark .t2{color:var(--muted); font-size:.78rem; font-family:var(--mono);}
+  .auth-card h1{font-size:1.3rem; margin:0 0 4px;}
+  .auth-card p.lead{color:var(--muted); font-size:.86rem; margin:0 0 22px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-size:.75rem; color:var(--muted); margin-bottom:6px; font-family:var(--mono);}
+  .field input{
+    width:100%; padding:10px 12px; background:var(--panel-alt); border:1px solid var(--border);
+    border-radius:8px; color:var(--text); font-size:.92rem; outline:none;
+  }
+  .field input:focus{border-color:var(--accent);}
+  .btn{
+    width:100%; padding:11px 14px; border-radius:8px; border:1px solid transparent;
+    font-weight:600; font-size:.92rem; transition:filter .15s ease;
+  }
+  .btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+  .btn-primary{background:var(--accent); color:#191008;}
+  .btn-primary:hover{filter:brightness(1.08);}
+  .btn-ghost{background:transparent; color:var(--text); border-color:var(--border);}
+  .btn-ghost:hover{background:var(--panel-alt);}
+  .btn-danger-ghost{background:transparent; color:var(--danger); border-color:var(--border);}
+  .auth-toggle{text-align:center; margin-top:16px; font-size:.85rem; color:var(--muted);}
+  .auth-toggle button{background:none; border:none; color:var(--accent-3); font-weight:600; padding:0;}
+  .auth-error{
+    background:rgba(226,87,76,.12); border:1px solid rgba(226,87,76,.35); color:#F3AFA9;
+    padding:9px 11px; border-radius:8px; font-size:.8rem; margin-bottom:14px;
+  }
+
+  /* ---------- app shell ---------- */
+  #app-shell{display:flex; min-height:100vh;}
+  aside.sidebar{
+    width:230px; flex:0 0 230px; background:var(--panel); border-right:1px solid var(--border);
+    display:flex; flex-direction:column; padding:20px 14px;
+  }
+  .brand{display:flex; align-items:center; gap:9px; padding:0 6px 20px; border-bottom:1px solid var(--border); margin-bottom:16px;}
+  .brand .t1{font-weight:700; font-size:.98rem; line-height:1.1;}
+  .brand .t2{color:var(--muted); font-size:.7rem; font-family:var(--mono);}
+  nav.tabs{display:flex; flex-direction:column; gap:4px;}
+  nav.tabs button{
+    display:flex; align-items:center; gap:10px; text-align:left; background:none; border:none;
+    color:var(--muted); padding:10px 12px; border-radius:8px; font-size:.87rem; font-weight:500;
+  }
+  nav.tabs button svg{flex:0 0 auto; opacity:.8;}
+  nav.tabs button:hover{background:var(--panel-alt); color:var(--text);}
+  nav.tabs button.active{background:var(--panel-alt); color:var(--text); box-shadow:inset 2px 0 0 var(--accent);}
+  .sidebar-footer{margin-top:auto; padding-top:16px; border-top:1px solid var(--border);}
+  .user-chip{font-size:.74rem; color:var(--muted); font-family:var(--mono); margin-bottom:10px; word-break:break-all;}
+
+  main.content{flex:1; padding:26px 34px 60px; min-width:0; overflow-x:hidden;}
+  .view{max-width:1180px;}
+  .view h2{font-size:1.28rem; margin:0 0 4px;}
+  .view .subtitle{color:var(--muted); font-size:.88rem; margin:0 0 22px;}
+
+  .grid{display:grid; gap:18px;}
+  .grid-2{grid-template-columns:1fr 1fr;}
+  @media (max-width:920px){.grid-2{grid-template-columns:1fr;}}
+
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:18px 18px 20px;}
+  .card h3{font-size:.95rem; margin:0 0 3px;}
+  .card .card-sub{color:var(--muted); font-size:.78rem; margin:0 0 14px;}
+
+  table{width:100%; border-collapse:collapse; font-size:.85rem;}
+  thead th{
+    text-align:left; font-family:var(--mono); font-size:.7rem; color:var(--muted);
+    font-weight:500; padding:8px 8px; border-bottom:1px solid var(--border);
+  }
+  tbody td{padding:6px 8px; border-bottom:1px solid rgba(255,255,255,.04);}
+  tbody tr:hover{background:rgba(255,255,255,.02);}
+  td input[type="text"], td input[type="number"]{
+    width:100%; background:var(--panel-alt); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); padding:6px 8px; font-size:.85rem; font-family:var(--mono);
+  }
+  .row-del{background:none; border:none; color:var(--danger); font-size:1rem; line-height:1; padding:4px 6px;}
+  .row-del:hover{color:#ff8a80;}
+
+  .toolbar{display:flex; gap:10px; align-items:center; margin:14px 0 4px; flex-wrap:wrap;}
+  .btn-sm{padding:8px 13px; font-size:.82rem; border-radius:7px; font-weight:600;}
+  .status-msg{font-size:.78rem; color:var(--accent-3); font-family:var(--mono); min-height:1.1em;}
+
+  .param-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  @media (max-width:640px){.param-grid{grid-template-columns:1fr;}}
+  .field-inline label{display:block; font-size:.75rem; color:var(--muted); margin-bottom:6px; font-family:var(--mono);}
+  .field-inline select, .field-inline input{
+    width:100%; padding:9px 11px; background:var(--panel-alt); border:1px solid var(--border);
+    border-radius:8px; color:var(--text); font-size:.88rem;
+  }
+  .method-pills{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;}
+  .pill{
+    padding:7px 13px; border-radius:20px; border:1px solid var(--border); background:var(--panel-alt);
+    font-size:.8rem; color:var(--muted); font-weight:500;
+  }
+  .pill.on-simple{border-color:var(--accent); color:var(--accent);}
+  .pill.on-weighted{border-color:var(--accent-2); color:var(--accent-2);}
+  .pill.on-exp{border-color:var(--accent-3); color:var(--accent-3);}
+
+  .weights-row{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;}
+  .weight-box{display:flex; flex-direction:column; align-items:center; gap:4px;}
+  .weight-box span{font-size:.68rem; color:var(--muted); font-family:var(--mono);}
+  .weight-box input{width:64px; text-align:center; padding:7px 4px; background:var(--panel-alt); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:.82rem;}
+  .weights-sum{font-size:.78rem; margin-top:8px; font-family:var(--mono);}
+  .weights-sum.ok{color:var(--accent-3);}
+  .weights-sum.bad{color:var(--danger);}
+
+  .kpi-row{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:18px;}
+  @media (max-width:760px){.kpi-row{grid-template-columns:1fr;}}
+  .kpi{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; position:relative;}
+  .kpi .kpi-label{font-size:.72rem; color:var(--muted); font-family:var(--mono); margin-bottom:6px;}
+  .kpi .kpi-value{font-size:1.5rem; font-weight:600; font-family:var(--mono);}
+  .kpi.best{box-shadow:inset 0 0 0 1px var(--accent-3);}
+  .kpi.best::after{content:"MEJOR"; position:absolute; top:14px; right:16px; font-size:.62rem; color:var(--accent-3); font-family:var(--mono); letter-spacing:.04em;}
+
+  canvas{max-width:100%;}
+  .chart-wrap{position:relative; height:280px;}
+  .chart-wrap.tall{height:320px;}
+
+  .legend-note{display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; font-size:.76rem; color:var(--muted); font-family:var(--mono);}
+  .legend-note span::before{content:"●"; margin-right:5px; font-size:.7rem;}
+  .legend-note .l-simple::before{color:var(--accent);}
+  .legend-note .l-weighted::before{color:var(--accent-2);}
+  .legend-note .l-exp::before{color:var(--accent-3);}
+  .legend-note .l-actual::before{color:var(--text);}
+
+  .empty-state{
+    text-align:center; padding:40px 16px; color:var(--muted); font-size:.88rem;
+    border:1px dashed var(--border); border-radius:var(--radius);
+  }
+  .top-note{
+    background:var(--panel-alt); border:1px solid var(--border); border-radius:8px;
+    padding:12px 14px; font-size:.82rem; color:var(--muted); margin-bottom:18px; line-height:1.5;
+  }
+  .top-note b{color:var(--text);}
+</style>
+</head>
+<body>
+
+<!-- ======================= AUTH SCREEN ======================= -->
+<section id="auth-screen">
+  <div class="auth-card">
+    <div class="auth-mark">
+      <svg width="30" height="30" viewBox="0 0 30 30"><rect width="30" height="30" rx="7" fill="#E2A33D"/><polyline points="6,21 12,13 16,17 24,7" fill="none" stroke="#191008" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div>
+        <div class="t1">Pronósticos de Demanda</div>
+        <div class="t2">MBA09 · Gerencia de Operaciones y Logística</div>
+      </div>
+    </div>
+    <h1 id="auth-title">Ingresar</h1>
+    <p class="lead" id="auth-lead">Accede con tu correo para trabajar sobre tus series de demanda.</p>
+    <div id="auth-error" class="auth-error hidden"></div>
+    <form id="auth-form">
+      <div class="field">
+        <label for="auth-email">Correo</label>
+        <input id="auth-email" type="email" autocomplete="email" required placeholder="nombre@correo.com">
+      </div>
+      <div class="field">
+        <label for="auth-password">Contraseña</label>
+        <input id="auth-password" type="password" autocomplete="current-password" required placeholder="Mínimo 6 caracteres">
+      </div>
+      <button type="submit" class="btn btn-primary" id="auth-submit">Ingresar</button>
+    </form>
+    <div class="auth-toggle">
+      <span id="auth-toggle-text">¿No tienes cuenta?</span>
+      <button type="button" id="auth-toggle-btn">Crear cuenta</button>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= APP SHELL ======================= -->
+<div id="app-shell" class="hidden">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 30 30"><rect width="30" height="30" rx="7" fill="#E2A33D"/><polyline points="6,21 12,13 16,17 24,7" fill="none" stroke="#191008" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div>
+        <div class="t1">Pronósticos</div>
+        <div class="t2">de Demanda</div>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button data-view="datos" class="active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg>
+        Datos
+      </button>
+      <button data-view="parametros">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.6 1z"/></svg>
+        Método y parámetros
+      </button>
+      <button data-view="dashboard">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+        Dashboard
+      </button>
+      <button data-view="comparacion">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 20V10M12 20V4M17 20v-7"/></svg>
+        Comparación
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-chip" id="user-chip">—</div>
+      <button class="btn btn-ghost btn-sm" id="logout-btn" style="width:100%;">Cerrar sesión</button>
+    </div>
+  </aside>
+
+  <main class="content">
+
+    <!-- ---------- VISTA: DATOS ---------- -->
+    <section class="view" id="view-datos">
+      <h2>Datos de demanda</h2>
+      <p class="subtitle">Ingresa tu serie histórica en orden cronológico (períodos consecutivos).</p>
+      <div class="card">
+        <h3>Serie histórica</h3>
+        <p class="card-sub">Cada fila es un período. El orden importa: el primero es el más antiguo.</p>
+        <table>
+          <thead><tr><th style="width:46%">Período</th><th style="width:36%">Demanda</th><th></th></tr></thead>
+          <tbody id="data-rows"></tbody>
+        </table>
+        <div class="toolbar">
+          <button class="btn btn-ghost btn-sm" id="add-row-btn">+ Agregar período</button>
+          <button class="btn btn-primary btn-sm" id="save-data-btn">Guardar datos</button>
+          <button class="btn btn-ghost btn-sm" id="load-sample-btn">Cargar ejemplo</button>
+          <span class="status-msg" id="data-status"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- VISTA: PARAMETROS ---------- -->
+    <section class="view hidden" id="view-parametros">
+      <h2>Método y parámetros</h2>
+      <p class="subtitle">Configura los tres métodos. Todos se calculan a la vez para poder compararlos.</p>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h3>Promedio simple (móvil)</h3>
+          <p class="card-sub">Se usa cuando la demanda es estable, sin tendencia ni estacionalidad.</p>
+          <div class="field-inline">
+            <label for="param-n-simple">Períodos a promediar (N)</label>
+            <input type="number" id="param-n-simple" min="2" max="12" value="3">
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Promedio ponderado</h3>
+          <p class="card-sub">Se usa cuando la demanda tiene una tendencia clara. Los pesos deben sumar 1.</p>
+          <div class="field-inline">
+            <label for="param-n-weighted">Períodos a ponderar (N)</label>
+            <input type="number" id="param-n-weighted" min="2" max="8" value="3">
+          </div>
+          <div class="weights-row" id="weights-row"></div>
+          <div class="weights-sum" id="weights-sum"></div>
+        </div>
+
+        <div class="card">
+          <h3>Suavización exponencial</h3>
+          <p class="card-sub">Se usa con poca información histórica y para actualizar el pronóstico constantemente.</p>
+          <div class="field-inline">
+            <label for="param-alpha">Alfa (α) — 0 a 1</label>
+            <input type="range" id="param-alpha" min="0" max="1" step="0.01" value="0.3">
+            <div class="mono muted" style="margin-top:6px; font-size:.8rem;">α = <span id="alpha-value">0.30</span></div>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="use-optimal-alpha" style="margin-top:10px;">Usar α óptimo (según MAPE)</button>
+        </div>
+
+        <div class="card">
+          <h3>Guardar configuración</h3>
+          <p class="card-sub">Los parámetros se guardan junto con tus datos en Firebase.</p>
+          <button class="btn btn-primary btn-sm" id="save-params-btn">Guardar parámetros</button>
+          <div class="status-msg" id="params-status"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- VISTA: DASHBOARD ---------- -->
+    <section class="view hidden" id="view-dashboard">
+      <h2>Dashboard</h2>
+      <p class="subtitle">Tendencia real vs. pronóstico y proyección al siguiente período, por método.</p>
+      <div id="dashboard-empty" class="empty-state">Aún no hay datos suficientes. Ve a <b>Datos</b> e ingresa al menos 4 períodos.</div>
+      <div id="dashboard-content" class="hidden">
+        <div class="kpi-row" id="kpi-row"></div>
+        <div class="card">
+          <h3>Tendencia: real vs. pronósticos</h3>
+          <p class="card-sub">Incluye la proyección para el siguiente período de cada método.</p>
+          <div class="chart-wrap tall"><canvas id="chart-trend"></canvas></div>
+          <div class="legend-note">
+            <span class="l-actual">Demanda real</span>
+            <span class="l-simple">Promedio simple</span>
+            <span class="l-weighted">Promedio ponderado</span>
+            <span class="l-exp">Suavización exponencial</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- VISTA: COMPARACION ---------- -->
+    <section class="view hidden" id="view-comparacion">
+      <h2>Comparación de métodos</h2>
+      <p class="subtitle">MAPE de cada método y barrido de α de 0 a 1 para la suavización exponencial.</p>
+      <div id="comparacion-empty" class="empty-state">Aún no hay datos suficientes. Ve a <b>Datos</b> e ingresa al menos 4 períodos.</div>
+      <div id="comparacion-content" class="hidden">
+        <div class="top-note" id="best-method-note"></div>
+        <div class="grid grid-2">
+          <div class="card">
+            <h3>MAPE por método</h3>
+            <p class="card-sub">Error porcentual absoluto medio — menor es mejor.</p>
+            <div class="chart-wrap"><canvas id="chart-mape-bar"></canvas></div>
+          </div>
+          <div class="card">
+            <h3>MAPE vs. α (suavización exponencial)</h3>
+            <p class="card-sub">Barrido de α entre 0 y 1, en pasos de 0.05.</p>
+            <div class="chart-wrap"><canvas id="chart-alpha-sweep"></canvas></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:18px;">
+          <h3>Detalle por período</h3>
+          <p class="card-sub">Valores reales, pronósticos y error absoluto porcentual (%) de cada método.</p>
+          <div style="overflow-x:auto;">
+            <table id="detail-table"><thead></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+import {
+  getAuth, onAuthStateChanged, signInWithEmailAndPassword,
+  createUserWithEmailAndPassword, signOut
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+import {
+  getFirestore, doc, getDoc, setDoc, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBUI72su8iUnSOJ1Pyg7ai9iVUUWlnRDFk",
+  authDomain: "pronostico-4dd14.firebaseapp.com",
+  projectId: "pronostico-4dd14",
+  storageBucket: "pronostico-4dd14.firebasestorage.app",
+  messagingSenderId: "449660929908",
+  appId: "1:449660929908:web:d0d58ec05e58574b328e21",
+  measurementId: "G-3DN7GC61LE"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const auth = getAuth(fbApp);
+const db = getFirestore(fbApp);
+
+/* ================= STATE ================= */
+let currentUser = null;
+let series = [];              // [{label, value}]
+let params = {
+  nSimple: 3,
+  nWeighted: 3,
+  weights: [0.2, 0.3, 0.5],
+  alpha: 0.3
+};
+let charts = {};
+
+/* ================= AUTH ================= */
+let authMode = 'login';
+const authForm = document.getElementById('auth-form');
+const authTitle = document.getElementById('auth-title');
+const authLead = document.getElementById('auth-lead');
+const authSubmit = document.getElementById('auth-submit');
+const authToggleText = document.getElementById('auth-toggle-text');
+const authToggleBtn = document.getElementById('auth-toggle-btn');
+const authError = document.getElementById('auth-error');
+
+authToggleBtn.addEventListener('click', () => {
+  authMode = authMode === 'login' ? 'register' : 'login';
+  const isLogin = authMode === 'login';
+  authTitle.textContent = isLogin ? 'Ingresar' : 'Crear cuenta';
+  authLead.textContent = isLogin
+    ? 'Accede con tu correo para trabajar sobre tus series de demanda.'
+    : 'Crea una cuenta para guardar tus series y pronósticos en la nube.';
+  authSubmit.textContent = isLogin ? 'Ingresar' : 'Crear cuenta';
+  authToggleText.textContent = isLogin ? '¿No tienes cuenta?' : '¿Ya tienes cuenta?';
+  authToggleBtn.textContent = isLogin ? 'Crear cuenta' : 'Ingresar';
+  authError.classList.add('hidden');
+});
+
+authForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  authError.classList.add('hidden');
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  authSubmit.disabled = true;
+  try {
+    if (authMode === 'login') {
+      await signInWithEmailAndPassword(auth, email, password);
+    } else {
+      await createUserWithEmailAndPassword(auth, email, password);
+    }
+  } catch (err) {
+    authError.textContent = traducirErrorAuth(err.code);
+    authError.classList.remove('hidden');
+  } finally {
+    authSubmit.disabled = false;
+  }
+});
+
+document.getElementById('logout-btn').addEventListener('click', () => signOut(auth));
+
+function traducirErrorAuth(code) {
+  const map = {
+    'auth/invalid-email': 'El correo no es válido.',
+    'auth/user-not-found': 'No existe una cuenta con ese correo.',
+    'auth/wrong-password': 'Contraseña incorrecta.',
+    'auth/invalid-credential': 'Correo o contraseña incorrectos.',
+    'auth/email-already-in-use': 'Ya existe una cuenta con ese correo.',
+    'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
+  };
+  return map[code] || 'Ocurrió un error. Intenta de nuevo.';
+}
+
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    currentUser = user;
+    document.getElementById('auth-screen').classList.add('hidden');
+    document.getElementById('app-shell').classList.remove('hidden');
+    document.getElementById('user-chip').textContent = user.email || user.uid;
+    await loadFromFirestore();
+    renderAll();
+  } else {
+    currentUser = null;
+    document.getElementById('app-shell').classList.add('hidden');
+    document.getElementById('auth-screen').classList.remove('hidden');
+  }
+});
+
+/* ================= FIRESTORE ================= */
+async function loadFromFirestore() {
+  try {
+    const ref = doc(db, 'pronosticos', currentUser.uid);
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const d = snap.data();
+      if (Array.isArray(d.series) && d.series.length) series = d.series;
+      if (d.params) params = { ...params, ...d.params };
+    }
+    if (!series.length) cargarEjemplo(false);
+  } catch (e) {
+    console.error(e);
+    if (!series.length) cargarEjemplo(false);
+  }
+}
+
+async function saveSeries(statusEl) {
+  if (statusEl) statusEl.textContent = 'Guardando...';
+  try {
+    const ref = doc(db, 'pronosticos', currentUser.uid);
+    await setDoc(ref, { series, updatedAt: serverTimestamp() }, { merge: true });
+    if (statusEl) { statusEl.textContent = 'Guardado ✓'; setTimeout(() => statusEl.textContent = '', 2000); }
+  } catch (e) {
+    console.error(e);
+    if (statusEl) statusEl.textContent = 'Error al guardar';
+  }
+}
+
+async function saveParams(statusEl) {
+  if (statusEl) statusEl.textContent = 'Guardando...';
+  try {
+    const ref = doc(db, 'pronosticos', currentUser.uid);
+    await setDoc(ref, { params, updatedAt: serverTimestamp() }, { merge: true });
+    if (statusEl) { statusEl.textContent = 'Guardado ✓'; setTimeout(() => statusEl.textContent = '', 2000); }
+  } catch (e) {
+    console.error(e);
+    if (statusEl) statusEl.textContent = 'Error al guardar';
+  }
+}
+
+/* ================= NAV ================= */
+document.querySelectorAll('nav.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('main .view').forEach(v => v.classList.add('hidden'));
+    document.getElementById('view-' + btn.dataset.view).classList.remove('hidden');
+    if (btn.dataset.view === 'dashboard' || btn.dataset.view === 'comparacion') renderAll();
+  });
+});
+
+/* ================= DATOS: tabla editable ================= */
+const dataRowsEl = document.getElementById('data-rows');
+
+function renderDataRows() {
+  dataRowsEl.innerHTML = '';
+  series.forEach((row, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" data-idx="${idx}" data-field="label" value="${escapeHtml(row.label)}" placeholder="Ej. Semana ${idx+1}"></td>
+      <td><input type="number" data-idx="${idx}" data-field="value" value="${row.value}" step="any"></td>
+      <td><button class="row-del" data-idx="${idx}" title="Eliminar">✕</button></td>
+    `;
+    dataRowsEl.appendChild(tr);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+dataRowsEl.addEventListener('input', (e) => {
+  const idx = e.target.dataset.idx;
+  const field = e.target.dataset.field;
+  if (idx === undefined) return;
+  if (field === 'value') series[idx].value = parseFloat(e.target.value) || 0;
+  else series[idx].label = e.target.value;
+});
+
+dataRowsEl.addEventListener('click', (e) => {
+  if (e.target.classList.contains('row-del')) {
+    series.splice(parseInt(e.target.dataset.idx), 1);
+    renderDataRows();
+  }
+});
+
+document.getElementById('add-row-btn').addEventListener('click', () => {
+  series.push({ label: `Período ${series.length + 1}`, value: 0 });
+  renderDataRows();
+});
+
+document.getElementById('save-data-btn').addEventListener('click', () => {
+  saveSeries(document.getElementById('data-status'));
+  syncParamInputsToBounds();
+  renderAll();
+});
+
+document.getElementById('load-sample-btn').addEventListener('click', () => cargarEjemplo(true));
+
+function cargarEjemplo(save) {
+  series = [110,118,109,125,132,128,140,151,146,158,165,172].map((v, i) => ({ label: `Mes ${i+1}`, value: v }));
+  renderDataRows();
+  if (save) saveSeries(document.getElementById('data-status'));
+}
+
+/* ================= PARAMETROS ================= */
+const nSimpleEl = document.getElementById('param-n-simple');
+const nWeightedEl = document.getElementById('param-n-weighted');
+const weightsRowEl = document.getElementById('weights-row');
+const weightsSumEl = document.getElementById('weights-sum');
+const alphaEl = document.getElementById('param-alpha');
+const alphaValueEl = document.getElementById('alpha-value');
+
+nSimpleEl.addEventListener('change', () => {
+  params.nSimple = Math.max(2, parseInt(nSimpleEl.value) || 3);
+  nSimpleEl.value = params.nSimple;
+});
+
+nWeightedEl.addEventListener('change', () => {
+  params.nWeighted = Math.max(2, Math.min(8, parseInt(nWeightedEl.value) || 3));
+  nWeightedEl.value = params.nWeighted;
+  regenerateWeights();
+  renderWeightsUI();
+});
+
+function regenerateWeights() {
+  const n = params.nWeighted;
+  if (params.weights.length === n) return;
+  // pesos linealmente crecientes normalizados (el más reciente pesa más)
+  const raw = Array.from({ length: n }, (_, i) => i + 1);
+  const sum = raw.reduce((a, b) => a + b, 0);
+  params.weights = raw.map(v => Math.round((v / sum) * 100) / 100);
+}
+
+function renderWeightsUI() {
+  weightsRowEl.innerHTML = '';
+  params.weights.forEach((w, i) => {
+    const box = document.createElement('div');
+    box.className = 'weight-box';
+    const distFromEnd = params.weights.length - i;
+    box.innerHTML = `<span>t-${distFromEnd}</span><input type="number" step="0.01" min="0" max="1" data-i="${i}" value="${w}">`;
+    weightsRowEl.appendChild(box);
+  });
+  updateWeightsSum();
+}
+
+function updateWeightsSum() {
+  const sum = params.weights.reduce((a, b) => a + b, 0);
+  weightsSumEl.textContent = `Suma de pesos: ${sum.toFixed(2)}` + (Math.abs(sum - 1) < 0.005 ? ' ✓' : ' (se normaliza automáticamente al calcular)');
+  weightsSumEl.className = 'weights-sum ' + (Math.abs(sum - 1) < 0.005 ? 'ok' : 'bad');
+}
+
+weightsRowEl.addEventListener('input', (e) => {
+  const i = e.target.dataset.i;
+  if (i === undefined) return;
+  params.weights[i] = parseFloat(e.target.value) || 0;
+  updateWeightsSum();
+});
+
+alphaEl.addEventListener('input', () => {
+  params.alpha = parseFloat(alphaEl.value);
+  alphaValueEl.textContent = params.alpha.toFixed(2);
+});
+
+document.getElementById('save-params-btn').addEventListener('click', () => {
+  saveParams(document.getElementById('params-status'));
+  renderAll();
+});
+
+document.getElementById('use-optimal-alpha').addEventListener('click', () => {
+  const sweep = alphaSweep();
+  if (!sweep.length) return;
+  const best = sweep.reduce((a, b) => (b.mape < a.mape ? b : a));
+  params.alpha = best.alpha;
+  alphaEl.value = best.alpha;
+  alphaValueEl.textContent = best.alpha.toFixed(2);
+  renderAll();
+});
+
+function syncParamInputsToBounds() {
+  const maxN = Math.max(2, series.length - 1);
+  nSimpleEl.max = maxN;
+  nWeightedEl.max = Math.min(8, maxN);
+  if (params.nSimple > maxN) { params.nSimple = maxN; nSimpleEl.value = maxN; }
+  if (params.nWeighted > maxN) { params.nWeighted = Math.min(8, maxN); nWeightedEl.value = params.nWeighted; regenerateWeights(); }
+}
+
+/* ================= MÉTODOS DE PRONÓSTICO ================= */
+function movingAverageForecast(data, n) {
+  return data.map((_, t) => {
+    if (t < n) return null;
+    const slice = data.slice(t - n, t);
+    return slice.reduce((a, b) => a + b, 0) / n;
+  });
+}
+
+function weightedForecast(data, weightsRaw) {
+  const n = weightsRaw.length;
+  const sumW = weightsRaw.reduce((a, b) => a + b, 0) || 1;
+  const w = weightsRaw.map(x => x / sumW); // normalizado
+  return data.map((_, t) => {
+    if (t < n) return null;
+    let acc = 0;
+    for (let i = 0; i < n; i++) acc += w[i] * data[t - n + i];
+    return acc;
+  });
+}
+
+function exponentialForecast(data, alpha) {
+  if (!data.length) return [];
+  const f = new Array(data.length).fill(null);
+  f[0] = data[0]; // inicialización: primer pronóstico = primer valor real
+  for (let t = 1; t < data.length; t++) {
+    f[t] = alpha * data[t - 1] + (1 - alpha) * f[t - 1];
+  }
+  return f;
+}
+
+function nextValueExponential(data, alpha) {
+  const f = exponentialForecast(data, alpha);
+  const last = f[f.length - 1];
+  return alpha * data[data.length - 1] + (1 - alpha) * last;
+}
+
+function mape(actual, forecast) {
+  let sum = 0, count = 0;
+  for (let i = 0; i < actual.length; i++) {
+    const a = actual[i], f = forecast[i];
+    if (f === null || f === undefined || a === 0) continue;
+    sum += Math.abs((a - f) / a);
+    count++;
+  }
+  return count ? (sum / count) * 100 : null;
+}
+
+function alphaSweep() {
+  const data = series.map(r => r.value);
+  if (data.length < 3) return [];
+  const out = [];
+  for (let a = 0; a <= 1.0001; a += 0.05) {
+    const alpha = Math.round(a * 100) / 100;
+    const f = exponentialForecast(data, alpha);
+    out.push({ alpha, mape: mape(data, f) });
+  }
+  return out;
+}
+
+function computeAll() {
+  const data = series.map(r => r.value);
+  const labels = series.map(r => r.label);
+  if (data.length < 2) return null;
+
+  const nSimple = Math.min(params.nSimple, Math.max(2, data.length - 1));
+  const nWeighted = Math.min(params.weights.length, Math.max(2, data.length - 1));
+  const weightsSlice = params.weights.slice(0, nWeighted);
+
+  const fSimple = movingAverageForecast(data, nSimple);
+  const fWeighted = weightedForecast(data, weightsSlice);
+  const fExp = exponentialForecast(data, params.alpha);
+
+  const nextSimple = data.slice(data.length - nSimple).reduce((a, b) => a + b, 0) / nSimple;
+  const sumW = weightsSlice.reduce((a, b) => a + b, 0) || 1;
+  const wNorm = weightsSlice.map(w => w / sumW);
+  const dataTail = data.slice(data.length - nWeighted);
+  const nextWeighted = dataTail.reduce((acc, v, i) => acc + v * wNorm[i], 0);
+  const nextExp = nextValueExponential(data, params.alpha);
+
+  return {
+    data, labels,
+    fSimple, fWeighted, fExp,
+    nextSimple, nextWeighted, nextExp,
+    mapeSimple: mape(data, fSimple),
+    mapeWeighted: mape(data, fWeighted),
+    mapeExp: mape(data, fExp),
+  };
+}
+
+/* ================= DASHBOARD ================= */
+function renderDashboard() {
+  const res = computeAll();
+  const empty = document.getElementById('dashboard-empty');
+  const content = document.getElementById('dashboard-content');
+  if (!res || res.data.length < 4) {
+    empty.classList.remove('hidden'); content.classList.add('hidden');
+    return;
+  }
+  empty.classList.add('hidden'); content.classList.remove('hidden');
+
+  const kpiRow = document.getElementById('kpi-row');
+  const methods = [
+    { name: 'Promedio simple', mape: res.mapeSimple, next: res.nextSimple },
+    { name: 'Promedio ponderado', mape: res.mapeWeighted, next: res.nextWeighted },
+    { name: 'Suavización exponencial', mape: res.mapeExp, next: res.nextExp },
+  ];
+  const validMapes = methods.filter(m => m.mape !== null);
+  const bestName = validMapes.length ? validMapes.reduce((a, b) => (b.mape < a.mape ? b : a)).name : null;
+
+  kpiRow.innerHTML = methods.map(m => `
+    <div class="kpi ${m.name === bestName ? 'best' : ''}">
+      <div class="kpi-label">${m.name} — próximo período</div>
+      <div class="kpi-value">${m.next.toFixed(1)}</div>
+      <div class="muted" style="font-size:.76rem; margin-top:4px;">MAPE: ${m.mape !== null ? m.mape.toFixed(2) + '%' : '—'}</div>
+    </div>
+  `).join('');
+
+  const labelsExt = [...res.labels, 'Próximo'];
+  const pad = (arr, v) => [...arr, v];
+
+  drawLineChart('chart-trend', labelsExt, [
+    { label: 'Demanda real', data: [...res.data, null], color: '#E7E9EE', dash: false },
+    { label: 'Promedio simple', data: pad(res.fSimple, res.nextSimple), color: '#E2A33D', dash: true },
+    { label: 'Promedio ponderado', data: pad(res.fWeighted, res.nextWeighted), color: '#6E8FD9', dash: true },
+    { label: 'Suavización exponencial', data: pad(res.fExp, res.nextExp), color: '#52B7A6', dash: true },
+  ]);
+}
+
+/* ================= COMPARACIÓN ================= */
+function renderComparacion() {
+  const res = computeAll();
+  const empty = document.getElementById('comparacion-empty');
+  const content = document.getElementById('comparacion-content');
+  if (!res || res.data.length < 4) {
+    empty.classList.remove('hidden'); content.classList.add('hidden');
+    return;
+  }
+  empty.classList.add('hidden'); content.classList.remove('hidden');
+
+  const methods = [
+    { name: 'Promedio simple', mape: res.mapeSimple, color: '#E2A33D' },
+    { name: 'Promedio ponderado', mape: res.mapeWeighted, color: '#6E8FD9' },
+    { name: 'Suavización exponencial', mape: res.mapeExp, color: '#52B7A6' },
+  ];
+  const valid = methods.filter(m => m.mape !== null);
+  const best = valid.length ? valid.reduce((a, b) => (b.mape < a.mape ? b : a)) : null;
+
+  document.getElementById('best-method-note').innerHTML = best
+    ? `El método con menor MAPE es <b>${best.name}</b> (${best.mape.toFixed(2)}%) para la serie actual. No existe "el mejor método" en abstracto — existe el que mejor se ajusta a estos datos.`
+    : 'No hay suficientes datos para comparar los métodos.';
+
+  drawBarChart('chart-mape-bar', methods.map(m => m.name), methods.map(m => m.mape), methods.map(m => m.color));
+
+  const sweep = alphaSweep();
+  drawLineChart('chart-alpha-sweep',
+    sweep.map(s => s.alpha.toFixed(2)),
+    [{ label: 'MAPE (%)', data: sweep.map(s => s.mape), color: '#52B7A6', dash: false }],
+    true
+  );
+
+  renderDetailTable(res);
+}
+
+function renderDetailTable(res) {
+  const thead = document.querySelector('#detail-table thead');
+  const tbody = document.querySelector('#detail-table tbody');
+  thead.innerHTML = `<tr>
+    <th>Período</th><th>Real</th>
+    <th>PS</th><th>Err% PS</th>
+    <th>PP</th><th>Err% PP</th>
+    <th>SE</th><th>Err% SE</th>
+  </tr>`;
+  const errPct = (a, f) => (f === null || a === 0) ? '—' : (Math.abs((a - f) / a) * 100).toFixed(1) + '%';
+  tbody.innerHTML = res.labels.map((lab, i) => `
+    <tr>
+      <td>${escapeHtml(lab)}</td>
+      <td class="mono">${res.data[i]}</td>
+      <td class="mono">${res.fSimple[i] !== null ? res.fSimple[i].toFixed(1) : '—'}</td>
+      <td class="mono">${errPct(res.data[i], res.fSimple[i])}</td>
+      <td class="mono">${res.fWeighted[i] !== null ? res.fWeighted[i].toFixed(1) : '—'}</td>
+      <td class="mono">${errPct(res.data[i], res.fWeighted[i])}</td>
+      <td class="mono">${res.fExp[i] !== null ? res.fExp[i].toFixed(1) : '—'}</td>
+      <td class="mono">${errPct(res.data[i], res.fExp[i])}</td>
+    </tr>
+  `).join('');
+}
+
+/* ================= CHART HELPERS ================= */
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+function drawLineChart(canvasId, labels, series, singleAxis) {
+  destroyChart(canvasId);
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  charts[canvasId] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: series.map(s => ({
+        label: s.label, data: s.data, borderColor: s.color,
+        backgroundColor: s.color, borderDash: s.dash ? [5, 4] : [],
+        tension: 0.25, spanGaps: true, pointRadius: 2.5, borderWidth: 2,
+      }))
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: series.length > 1 && singleAxis ? true : (series.length > 1 && !singleAxis ? false : series.length > 1), labels: { color: '#8B92A1', font: { family: 'IBM Plex Mono', size: 10 } } },
+      },
+      scales: {
+        x: { ticks: { color: '#8B92A1', font: { family: 'IBM Plex Mono', size: 10 } }, grid: { color: 'rgba(255,255,255,.05)' } },
+        y: { ticks: { color: '#8B92A1', font: { family: 'IBM Plex Mono', size: 10 } }, grid: { color: 'rgba(255,255,255,.05)' } },
+      }
+    }
+  });
+}
+
+function drawBarChart(canvasId, labels, data, colors) {
+  destroyChart(canvasId);
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderRadius: 5, maxBarThickness: 70 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8B92A1', font: { family: 'IBM Plex Mono', size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: '#8B92A1', font: { family: 'IBM Plex Mono', size: 10 }, callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,.05)' } },
+      }
+    }
+  });
+}
+
+/* ================= RENDER ALL ================= */
+function renderAll() {
+  renderDataRows();
+  syncParamInputsToBounds();
+  nSimpleEl.value = params.nSimple;
+  nWeightedEl.value = params.nWeighted;
+  regenerateWeightsIfNeeded();
+  renderWeightsUI();
+  alphaEl.value = params.alpha;
+  alphaValueEl.textContent = params.alpha.toFixed(2);
+  renderDashboard();
+  renderComparacion();
+}
+
+function regenerateWeightsIfNeeded() {
+  if (params.weights.length !== params.nWeighted) regenerateWeights();
+}
+
+/* ================= PWA: service worker ================= */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
