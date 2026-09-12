@@ -287,6 +287,15 @@
       <h2>Método y parámetros</h2>
       <p class="subtitle">Configura los tres métodos. Todos se calculan a la vez para poder compararlos.</p>
 
+      <div class="card" style="margin-bottom:18px;">
+        <h3>Horizonte de pronóstico</h3>
+        <p class="card-sub">¿Cuántos períodos futuros quieres proyectar con los datos suministrados? Aplica a los tres métodos a la vez.</p>
+        <div class="field-inline" style="max-width:220px;">
+          <label for="param-horizon">Períodos a pronosticar</label>
+          <input type="number" id="param-horizon" min="1" max="24" value="1">
+        </div>
+      </div>
+
       <div class="grid grid-2">
         <div class="card">
           <h3>Promedio simple (móvil)</h3>
@@ -331,19 +340,26 @@
     <!-- ---------- VISTA: DASHBOARD ---------- -->
     <section class="view hidden" id="view-dashboard">
       <h2>Dashboard</h2>
-      <p class="subtitle">Tendencia real vs. pronóstico y proyección al siguiente período, por método.</p>
+      <p class="subtitle">Tendencia real vs. pronóstico y proyección de los períodos futuros configurados, por método.</p>
       <div id="dashboard-empty" class="empty-state">Aún no hay datos suficientes. Ve a <b>Datos</b> e ingresa al menos 4 períodos.</div>
       <div id="dashboard-content" class="hidden">
         <div class="kpi-row" id="kpi-row"></div>
         <div class="card">
           <h3>Tendencia: real vs. pronósticos</h3>
-          <p class="card-sub">Incluye la proyección para el siguiente período de cada método.</p>
+          <p class="card-sub">Incluye la proyección para los períodos futuros de cada método.</p>
           <div class="chart-wrap tall"><canvas id="chart-trend"></canvas></div>
           <div class="legend-note">
             <span class="l-actual">Demanda real</span>
             <span class="l-simple">Promedio simple</span>
             <span class="l-weighted">Promedio ponderado</span>
             <span class="l-exp">Suavización exponencial</span>
+          </div>
+        </div>
+        <div class="card" id="future-table-card" style="margin-top:18px;">
+          <h3>Proyección de períodos futuros</h3>
+          <p class="card-sub">Valores pronosticados con los datos suministrados, para cada método.</p>
+          <div style="overflow-x:auto;">
+            <table id="future-table"><thead></thead><tbody></tbody></table>
           </div>
         </div>
       </div>
@@ -392,13 +408,12 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBUI72su8iUnSOJ1Pyg7ai9iVUUWlnRDFk",
-  authDomain: "pronostico-4dd14.firebaseapp.com",
-  projectId: "pronostico-4dd14",
-  storageBucket: "pronostico-4dd14.firebasestorage.app",
-  messagingSenderId: "449660929908",
-  appId: "1:449660929908:web:d0d58ec05e58574b328e21",
-  measurementId: "G-3DN7GC61LE"
+  apiKey: "AIzaSyBUGKrovHvyCwDFam9wFPkV_nNRDU3XBFk",
+  authDomain: "control-4ae6e.firebaseapp.com",
+  projectId: "control-4ae6e",
+  storageBucket: "control-4ae6e.firebasestorage.app",
+  messagingSenderId: "104913223960",
+  appId: "1:104913223960:web:a225848de67b0d5cbe5e6d"
 };
 
 const fbApp = initializeApp(firebaseConfig);
@@ -412,7 +427,8 @@ let params = {
   nSimple: 3,
   nWeighted: 3,
   weights: [0.2, 0.3, 0.5],
-  alpha: 0.3
+  alpha: 0.3,
+  horizon: 1
 };
 let charts = {};
 
@@ -469,8 +485,14 @@ function traducirErrorAuth(code) {
     'auth/invalid-credential': 'Correo o contraseña incorrectos.',
     'auth/email-already-in-use': 'Ya existe una cuenta con ese correo.',
     'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
+    'auth/unauthorized-domain': 'Este dominio no está autorizado en Firebase Authentication (Authentication → Settings → Authorized domains).',
+    'auth/network-request-failed': 'Falló la conexión con Firebase. Revisa tu red o si el dominio está bloqueado.',
+    'auth/operation-not-allowed': 'El inicio de sesión con correo/contraseña no está habilitado en Firebase (Authentication → Sign-in method).',
+    'auth/too-many-requests': 'Demasiados intentos. Espera un momento y vuelve a intentar.',
+    'auth/user-disabled': 'Esta cuenta fue deshabilitada.',
   };
-  return map[code] || 'Ocurrió un error. Intenta de nuevo.';
+  const msg = map[code] || 'Ocurrió un error. Intenta de nuevo.';
+  return code ? `${msg} (${code})` : msg;
 }
 
 onAuthStateChanged(auth, async (user) => {
@@ -601,6 +623,13 @@ const weightsRowEl = document.getElementById('weights-row');
 const weightsSumEl = document.getElementById('weights-sum');
 const alphaEl = document.getElementById('param-alpha');
 const alphaValueEl = document.getElementById('alpha-value');
+const horizonEl = document.getElementById('param-horizon');
+
+horizonEl.addEventListener('change', () => {
+  params.horizon = Math.max(1, Math.min(24, parseInt(horizonEl.value) || 1));
+  horizonEl.value = params.horizon;
+  renderAll();
+});
 
 nSimpleEl.addEventListener('change', () => {
   params.nSimple = Math.max(2, parseInt(nSimpleEl.value) || 3);
@@ -713,6 +742,42 @@ function nextValueExponential(data, alpha) {
   return alpha * data[data.length - 1] + (1 - alpha) * last;
 }
 
+/* ---- proyección de h períodos futuros (usa los datos suministrados) ---- */
+function extendMovingAverage(data, n, h) {
+  const ext = [...data];
+  const out = [];
+  for (let i = 0; i < h; i++) {
+    const window = ext.slice(ext.length - n);
+    const f = window.reduce((a, b) => a + b, 0) / n;
+    out.push(f);
+    ext.push(f); // el pronóstico alimenta el siguiente cálculo
+  }
+  return out;
+}
+
+function extendWeighted(data, weightsRaw, h) {
+  const n = weightsRaw.length;
+  const sumW = weightsRaw.reduce((a, b) => a + b, 0) || 1;
+  const w = weightsRaw.map(x => x / sumW);
+  const ext = [...data];
+  const out = [];
+  for (let i = 0; i < h; i++) {
+    const window = ext.slice(ext.length - n);
+    let acc = 0;
+    for (let j = 0; j < n; j++) acc += w[j] * window[j];
+    out.push(acc);
+    ext.push(acc);
+  }
+  return out;
+}
+
+function extendExponential(data, alpha, h) {
+  // en suavización exponencial simple, sin nueva información real,
+  // el pronóstico se mantiene plano en el primer valor proyectado
+  const first = nextValueExponential(data, alpha);
+  return new Array(h).fill(first);
+}
+
 function mape(actual, forecast) {
   let sum = 0, count = 0;
   for (let i = 0; i < actual.length; i++) {
@@ -749,17 +814,16 @@ function computeAll() {
   const fWeighted = weightedForecast(data, weightsSlice);
   const fExp = exponentialForecast(data, params.alpha);
 
-  const nextSimple = data.slice(data.length - nSimple).reduce((a, b) => a + b, 0) / nSimple;
-  const sumW = weightsSlice.reduce((a, b) => a + b, 0) || 1;
-  const wNorm = weightsSlice.map(w => w / sumW);
-  const dataTail = data.slice(data.length - nWeighted);
-  const nextWeighted = dataTail.reduce((acc, v, i) => acc + v * wNorm[i], 0);
-  const nextExp = nextValueExponential(data, params.alpha);
+  const horizon = Math.max(1, params.horizon || 1);
+  const futureSimple = extendMovingAverage(data, nSimple, horizon);
+  const futureWeighted = extendWeighted(data, weightsSlice, horizon);
+  const futureExp = extendExponential(data, params.alpha, horizon);
 
   return {
-    data, labels,
+    data, labels, horizon,
     fSimple, fWeighted, fExp,
-    nextSimple, nextWeighted, nextExp,
+    futureSimple, futureWeighted, futureExp,
+    nextSimple: futureSimple[0], nextWeighted: futureWeighted[0], nextExp: futureExp[0],
     mapeSimple: mape(data, fSimple),
     mapeWeighted: mape(data, fWeighted),
     mapeExp: mape(data, fExp),
@@ -788,21 +852,40 @@ function renderDashboard() {
 
   kpiRow.innerHTML = methods.map(m => `
     <div class="kpi ${m.name === bestName ? 'best' : ''}">
-      <div class="kpi-label">${m.name} — próximo período</div>
+      <div class="kpi-label">${m.name} — primer período proyectado</div>
       <div class="kpi-value">${m.next.toFixed(1)}</div>
       <div class="muted" style="font-size:.76rem; margin-top:4px;">MAPE: ${m.mape !== null ? m.mape.toFixed(2) + '%' : '—'}</div>
     </div>
   `).join('');
 
-  const labelsExt = [...res.labels, 'Próximo'];
-  const pad = (arr, v) => [...arr, v];
+  const futureLabels = Array.from({ length: res.horizon }, (_, i) => `+${i + 1}`);
+  const labelsExt = [...res.labels, ...futureLabels];
+  const padNulls = (arr) => [...arr, ...new Array(res.horizon).fill(null)];
 
   drawLineChart('chart-trend', labelsExt, [
-    { label: 'Demanda real', data: [...res.data, null], color: '#E7E9EE', dash: false },
-    { label: 'Promedio simple', data: pad(res.fSimple, res.nextSimple), color: '#E2A33D', dash: true },
-    { label: 'Promedio ponderado', data: pad(res.fWeighted, res.nextWeighted), color: '#6E8FD9', dash: true },
-    { label: 'Suavización exponencial', data: pad(res.fExp, res.nextExp), color: '#52B7A6', dash: true },
+    { label: 'Demanda real', data: padNulls(res.data), color: '#E7E9EE', dash: false },
+    { label: 'Promedio simple', data: [...res.fSimple, ...res.futureSimple], color: '#E2A33D', dash: true },
+    { label: 'Promedio ponderado', data: [...res.fWeighted, ...res.futureWeighted], color: '#6E8FD9', dash: true },
+    { label: 'Suavización exponencial', data: [...res.fExp, ...res.futureExp], color: '#52B7A6', dash: true },
   ]);
+
+  renderFutureTable(res);
+}
+
+function renderFutureTable(res) {
+  const thead = document.querySelector('#future-table thead');
+  const tbody = document.querySelector('#future-table tbody');
+  thead.innerHTML = `<tr>
+    <th>Período futuro</th><th>Promedio simple</th><th>Promedio ponderado</th><th>Suavización exponencial</th>
+  </tr>`;
+  tbody.innerHTML = Array.from({ length: res.horizon }, (_, i) => `
+    <tr>
+      <td>${res.labels[res.labels.length - 1]} + ${i + 1}</td>
+      <td class="mono">${res.futureSimple[i].toFixed(1)}</td>
+      <td class="mono">${res.futureWeighted[i].toFixed(1)}</td>
+      <td class="mono">${res.futureExp[i].toFixed(1)}</td>
+    </tr>
+  `).join('');
 }
 
 /* ================= COMPARACIÓN ================= */
@@ -921,6 +1004,7 @@ function renderAll() {
   renderWeightsUI();
   alphaEl.value = params.alpha;
   alphaValueEl.textContent = params.alpha.toFixed(2);
+  horizonEl.value = params.horizon;
   renderDashboard();
   renderComparacion();
 }
