@@ -195,39 +195,8 @@
 </head>
 <body>
 
-<!-- ======================= AUTH SCREEN ======================= -->
-<section id="auth-screen">
-  <div class="auth-card">
-    <div class="auth-mark">
-      <svg width="30" height="30" viewBox="0 0 30 30"><rect width="30" height="30" rx="7" fill="#E2A33D"/><polyline points="6,21 12,13 16,17 24,7" fill="none" stroke="#191008" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div>
-        <div class="t1">Pronósticos de Demanda</div>
-        <div class="t2">MBA09 · Gerencia de Operaciones y Logística</div>
-      </div>
-    </div>
-    <h1 id="auth-title">Ingresar</h1>
-    <p class="lead" id="auth-lead">Accede con tu correo para trabajar sobre tus series de demanda.</p>
-    <div id="auth-error" class="auth-error hidden"></div>
-    <form id="auth-form">
-      <div class="field">
-        <label for="auth-email">Correo</label>
-        <input id="auth-email" type="email" autocomplete="email" required placeholder="nombre@correo.com">
-      </div>
-      <div class="field">
-        <label for="auth-password">Contraseña</label>
-        <input id="auth-password" type="password" autocomplete="current-password" required placeholder="Mínimo 6 caracteres">
-      </div>
-      <button type="submit" class="btn btn-primary" id="auth-submit">Ingresar</button>
-    </form>
-    <div class="auth-toggle">
-      <span id="auth-toggle-text">¿No tienes cuenta?</span>
-      <button type="button" id="auth-toggle-btn">Crear cuenta</button>
-    </div>
-  </div>
-</section>
-
 <!-- ======================= APP SHELL ======================= -->
-<div id="app-shell" class="hidden">
+<div id="app-shell">
   <aside class="sidebar">
     <div class="brand">
       <svg width="26" height="26" viewBox="0 0 30 30"><rect width="30" height="30" rx="7" fill="#E2A33D"/><polyline points="6,21 12,13 16,17 24,7" fill="none" stroke="#191008" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -254,10 +223,6 @@
         Comparación
       </button>
     </nav>
-    <div class="sidebar-footer">
-      <div class="user-chip" id="user-chip">—</div>
-      <button class="btn btn-ghost btn-sm" id="logout-btn" style="width:100%;">Cerrar sesión</button>
-    </div>
   </aside>
 
   <main class="content">
@@ -400,10 +365,6 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import {
-  getAuth, onAuthStateChanged, signInWithEmailAndPassword,
-  createUserWithEmailAndPassword, signOut
-} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-import {
   getFirestore, doc, getDoc, setDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
@@ -417,11 +378,9 @@ const firebaseConfig = {
 };
 
 const fbApp = initializeApp(firebaseConfig);
-const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 
 /* ================= STATE ================= */
-let currentUser = null;
 let series = [];              // [{label, value}]
 let params = {
   nSimple: 3,
@@ -432,89 +391,12 @@ let params = {
 };
 let charts = {};
 
-/* ================= AUTH ================= */
-let authMode = 'login';
-const authForm = document.getElementById('auth-form');
-const authTitle = document.getElementById('auth-title');
-const authLead = document.getElementById('auth-lead');
-const authSubmit = document.getElementById('auth-submit');
-const authToggleText = document.getElementById('auth-toggle-text');
-const authToggleBtn = document.getElementById('auth-toggle-btn');
-const authError = document.getElementById('auth-error');
+/* ================= FIRESTORE (sin autenticación, documento único compartido) ================= */
+const DOC_REF = doc(db, 'pronosticos', 'shared');
 
-authToggleBtn.addEventListener('click', () => {
-  authMode = authMode === 'login' ? 'register' : 'login';
-  const isLogin = authMode === 'login';
-  authTitle.textContent = isLogin ? 'Ingresar' : 'Crear cuenta';
-  authLead.textContent = isLogin
-    ? 'Accede con tu correo para trabajar sobre tus series de demanda.'
-    : 'Crea una cuenta para guardar tus series y pronósticos en la nube.';
-  authSubmit.textContent = isLogin ? 'Ingresar' : 'Crear cuenta';
-  authToggleText.textContent = isLogin ? '¿No tienes cuenta?' : '¿Ya tienes cuenta?';
-  authToggleBtn.textContent = isLogin ? 'Crear cuenta' : 'Ingresar';
-  authError.classList.add('hidden');
-});
-
-authForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  authError.classList.add('hidden');
-  const email = document.getElementById('auth-email').value.trim();
-  const password = document.getElementById('auth-password').value;
-  authSubmit.disabled = true;
-  try {
-    if (authMode === 'login') {
-      await signInWithEmailAndPassword(auth, email, password);
-    } else {
-      await createUserWithEmailAndPassword(auth, email, password);
-    }
-  } catch (err) {
-    authError.textContent = traducirErrorAuth(err.code);
-    authError.classList.remove('hidden');
-  } finally {
-    authSubmit.disabled = false;
-  }
-});
-
-document.getElementById('logout-btn').addEventListener('click', () => signOut(auth));
-
-function traducirErrorAuth(code) {
-  const map = {
-    'auth/invalid-email': 'El correo no es válido.',
-    'auth/user-not-found': 'No existe una cuenta con ese correo.',
-    'auth/wrong-password': 'Contraseña incorrecta.',
-    'auth/invalid-credential': 'Correo o contraseña incorrectos.',
-    'auth/email-already-in-use': 'Ya existe una cuenta con ese correo.',
-    'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
-    'auth/unauthorized-domain': 'Este dominio no está autorizado en Firebase Authentication (Authentication → Settings → Authorized domains).',
-    'auth/network-request-failed': 'Falló la conexión con Firebase. Revisa tu red o si el dominio está bloqueado.',
-    'auth/operation-not-allowed': 'El inicio de sesión con correo/contraseña no está habilitado en Firebase (Authentication → Sign-in method).',
-    'auth/too-many-requests': 'Demasiados intentos. Espera un momento y vuelve a intentar.',
-    'auth/user-disabled': 'Esta cuenta fue deshabilitada.',
-  };
-  const msg = map[code] || 'Ocurrió un error. Intenta de nuevo.';
-  return code ? `${msg} (${code})` : msg;
-}
-
-onAuthStateChanged(auth, async (user) => {
-  if (user) {
-    currentUser = user;
-    document.getElementById('auth-screen').classList.add('hidden');
-    document.getElementById('app-shell').classList.remove('hidden');
-    document.getElementById('user-chip').textContent = user.email || user.uid;
-    await loadFromFirestore();
-    renderAll();
-  } else {
-    currentUser = null;
-    document.getElementById('app-shell').classList.add('hidden');
-    document.getElementById('auth-screen').classList.remove('hidden');
-  }
-});
-
-/* ================= FIRESTORE ================= */
 async function loadFromFirestore() {
   try {
-    const ref = doc(db, 'pronosticos', currentUser.uid);
-    const snap = await getDoc(ref);
+    const snap = await getDoc(DOC_REF);
     if (snap.exists()) {
       const d = snap.data();
       if (Array.isArray(d.series) && d.series.length) series = d.series;
@@ -530,8 +412,7 @@ async function loadFromFirestore() {
 async function saveSeries(statusEl) {
   if (statusEl) statusEl.textContent = 'Guardando...';
   try {
-    const ref = doc(db, 'pronosticos', currentUser.uid);
-    await setDoc(ref, { series, updatedAt: serverTimestamp() }, { merge: true });
+    await setDoc(DOC_REF, { series, updatedAt: serverTimestamp() }, { merge: true });
     if (statusEl) { statusEl.textContent = 'Guardado ✓'; setTimeout(() => statusEl.textContent = '', 2000); }
   } catch (e) {
     console.error(e);
@@ -542,8 +423,7 @@ async function saveSeries(statusEl) {
 async function saveParams(statusEl) {
   if (statusEl) statusEl.textContent = 'Guardando...';
   try {
-    const ref = doc(db, 'pronosticos', currentUser.uid);
-    await setDoc(ref, { params, updatedAt: serverTimestamp() }, { merge: true });
+    await setDoc(DOC_REF, { params, updatedAt: serverTimestamp() }, { merge: true });
     if (statusEl) { statusEl.textContent = 'Guardado ✓'; setTimeout(() => statusEl.textContent = '', 2000); }
   } catch (e) {
     console.error(e);
@@ -1019,6 +899,12 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   });
 }
+
+/* ================= ARRANQUE (sin autenticación) ================= */
+(async function init() {
+  await loadFromFirestore();
+  renderAll();
+})();
 </script>
 </body>
 </html>
